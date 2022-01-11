@@ -55,6 +55,8 @@ from six.moves import range
 import six.moves.cPickle as pkl
 import tensorflow.compat.v1 as tf
 
+from meta_dataset.dataset_conversion.aircraft_multi_label import get_manufacturer_map, get_family_map
+
 # Datasets in the same order as reported in the article.
 # 'ilsvrc_2012_data_root' is already defined in imagenet_specification.py.
 tf.flags.DEFINE_string(
@@ -194,8 +196,13 @@ def write_example(data_bytes,
     input_key: String used as key for the input (image of feature).
     label_key: String used as key for the label.
   """
+  if (type(class_label) == int):
+    label_out = [class_label]
+  else:
+      label_out = class_label
+
   example = make_example([(input_key, 'bytes', [data_bytes]),
-                          (label_key, 'int64', [class_label])])
+                          (label_key, 'int64', label_out)])
   writer.write(example)
 
 
@@ -298,7 +305,9 @@ def write_tfrecord_from_image_files(class_files,
                                     invert_img=False,
                                     bboxes=None,
                                     output_format='JPEG',
-                                    skip_on_error=False):
+                                    skip_on_error=False,
+                                    resize=84,
+                                    extra_ids=None):
   """Create and write a tf.record file for the images corresponding to a class.
 
   Args:
@@ -357,13 +366,17 @@ def write_tfrecord_from_image_files(class_files,
     if invert_img:
       img = ImageOps.invert(img)
       img_needs_encoding = True
+    if resize > 0:
+        img = img.resize((resize, resize), resample=Image.BILINEAR)
+        img_needs_encoding = True
 
-    if img_needs_encoding:
-      # Convert the image into output_format
-      buf = io.BytesIO()
-      img.save(buf, format=output_format)
-      buf.seek(0)
-      image_bytes = buf.getvalue()
+    # if img_needs_encoding:
+    #   # Convert the image into output_format
+    #   buf = io.BytesIO()
+    #   img.save(buf, format=output_format)
+    #   buf.seek(0)
+    #   image_bytes = buf.getvalue()
+    image_bytes = np.array(img).tobytes()
     return image_bytes
 
   writer = tf.python_io.TFRecordWriter(output_path)
@@ -379,7 +392,10 @@ def write_tfrecord_from_image_files(class_files,
         raise
     else:
       # This gets executed only if no Exception was raised
-      write_example(img, class_label, writer)
+      if extra_ids is None:
+        write_example(img, class_label, writer)
+      else:
+        write_example(img, [class_label, *extra_ids[i]], writer)
       written_images_count += 1
 
   writer.close()
@@ -1227,6 +1243,9 @@ class AircraftConverter(DatasetConverter):
         itertools.chain(train_classes, valid_classes, test_classes))
     assert set(variants_to_names.keys()) == set(all_classes)
 
+    family_map = get_family_map(self.data_root)
+    maker_map = get_manufacturer_map(self.data_root)
+
     for class_id, class_name in enumerate(all_classes):
       logging.info('Creating record for class ID %d (%s)...', class_id,
                    class_name)
@@ -1235,6 +1254,10 @@ class AircraftConverter(DatasetConverter):
                        '{}.jpg'.format(filename))
           for filename in sorted(variants_to_names[class_name])
       ]
+      maker_id = [maker_map[filename] for filename in sorted(variants_to_names[class_name])]
+      family_id = [family_map[filename] for filename in sorted(variants_to_names[class_name])]
+
+      extra_id = list(zip(maker_id, family_id))
       bboxes = [
           names_to_bboxes[name]
           for name in sorted(variants_to_names[class_name])
@@ -1244,8 +1267,10 @@ class AircraftConverter(DatasetConverter):
       self.class_names[class_id] = class_name
       self.images_per_class[class_id] = len(class_files)
 
+
+
       write_tfrecord_from_image_files(
-          class_files, class_id, class_records_path, bboxes=bboxes)
+          class_files, class_id, class_records_path, bboxes=bboxes, extra_ids=extra_id)
 
 
 class TrafficSignConverter(DatasetConverter):
