@@ -55,7 +55,8 @@ from six.moves import range
 import six.moves.cPickle as pkl
 import tensorflow.compat.v1 as tf
 
-from meta_dataset.dataset_conversion.aircraft_multi_label import get_manufacturer_map, get_family_map
+# TODO: Ask Ruohan about this
+#from meta_dataset.dataset_conversion.aircraft_multi_label import get_manufacturer_map, get_family_map
 
 # Datasets in the same order as reported in the article.
 # 'ilsvrc_2012_data_root' is already defined in imagenet_specification.py.
